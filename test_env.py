@@ -24,7 +24,11 @@ def test_step_updates_robot_position():
     initial_position = env.robot_position
     observation, reward, terminated, truncated, info = env.step(3)  # Move Right
     new_position = env.robot_position
-    assert new_position != initial_position or initial_position[1] == env.num_cols - 1  # Check if moved or at right edge
+    assert ( # Check if position is updated or if movement was blocked by boundary/obstacle
+        new_position != initial_position
+        or initial_position[1] == env.num_cols - 1
+        or (initial_position[0], initial_position[1] + 1) in env.obstacle_positions
+    )
 
 # Ensure correct type and content of step info
 def test_step_returns_correct_info():

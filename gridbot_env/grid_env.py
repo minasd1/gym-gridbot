@@ -48,13 +48,10 @@ class GridEnv(gym.Env):
         self.terminated = False
         self.truncated = False
 
-        info = {
-            "robot_position": self.robot_position,
-            "target_position": self.target_position,
-            "obstacle_positions": self.obstacle_positions
-        }
+        observation = self._get_observation()
+        info = self._get_info()
 
-        return self.grid, info
+        return observation, info
 
 
     def step(self, action):
@@ -98,10 +95,21 @@ class GridEnv(gym.Env):
             self.grid[obs_pos] = 2
         self.grid[self.target_position] = 3
 
-        info = {
+        observation = self._get_observation()
+        info = self._get_info()
+
+        return observation, reward, self.terminated, self.truncated, info
+
+    #===================================================================
+        #Auxilliary Methods#
+    #===================================================================
+
+    def _get_info(self):
+        return {
             "robot_position": self.robot_position,
             "target_position": self.target_position,
             "obstacle_positions": self.obstacle_positions
         }
-
-        return self.grid, reward, self.terminated, self.truncated, info
+    
+    def _get_observation(self):
+        return self.grid
