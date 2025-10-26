@@ -34,7 +34,7 @@ class GridEnv(gym.Env):
         self.window = None
         self.clock = None
 
-    def reset(self, seed = None):
+    def reset(self, *, seed = None, options = None):
         super().reset(seed=seed)
 
         # Initialize positions for all entities
@@ -212,4 +212,4 @@ class GridEnv(gym.Env):
         }
     
     def _get_observation(self):
-        return self.grid
+        return np.array(self.grid, dtype=np.int8)
