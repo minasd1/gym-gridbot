@@ -14,7 +14,7 @@ import pygame
 class GridEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4}
 
-    def __init__(self, render_mode = None, grid_size = (NUM_ROWS, NUM_COLS), num_obstacles = NUM_OBSTACLES):
+    def __init__(self, render_mode = None, grid_size = (NUM_ROWS, NUM_COLS), num_obstacles = NUM_OBSTACLES, fixed_layout = True):
         super(GridEnv, self).__init__() # inherit from gym.Env
         self.num_rows = grid_size[0]
         self.num_cols = grid_size[1]
@@ -34,19 +34,27 @@ class GridEnv(gym.Env):
         self.window = None
         self.clock = None
 
+        self.fixed_layout = fixed_layout
+        self.current_layout = None
+
+        self.robot_position = None
+        self.obstacle_positions = None
+        self.target_position = None
+
     def reset(self, *, seed = None, options = None):
         super().reset(seed=seed)
+        self.steps_taken = 0
+        self.max_steps = 50
 
-        # Initialize positions for all entities
-        # caution : we should not have overlapping positions
-        self.robot_position = (rd.randint(0, self.num_rows - 1), rd.randint(0, self.num_cols - 1))
-        all_positions = list(product(range(self.num_rows), range(self.num_cols)))
-        available_positions = [pos for pos in all_positions if pos != self.robot_position]
-        sampled_positions = rd.sample(available_positions, self.num_obstacles + 1)
-
-        # Assign positions for obstacles and target
-        self.obstacle_positions = sampled_positions[:-1]
-        self.target_position = sampled_positions[-1]
+        if self.fixed_layout:
+            # Generate layout once on first reset, then reuse
+            if self.current_layout is None:
+                self.current_layout = self._generate_layout()
+            # Use the stored layout
+            self.robot_position, self.obstacle_positions, self.target_position = self.current_layout
+        else:
+            # Generate a new layout each reset
+            self.robot_position, self.obstacle_positions, self.target_position = self._generate_layout()
 
         # Place robot, obstacles, and target in the grid
         self.grid[self.robot_position] = 1
@@ -61,9 +69,14 @@ class GridEnv(gym.Env):
         info = self._get_info()
 
         return observation, info
-
-
+    
     def step(self, action):
+        # Ensure action is valid
+        action = int(np.asarray(action).item())
+        assert action in [0, 1, 2, 3], f"Invalid action received: {action}"
+
+        self.steps_taken += 1 # Keep track for truncation
+
         # Define movement based on action
         movement = {
             0: (-1, 0),  # Up
@@ -76,26 +89,36 @@ class GridEnv(gym.Env):
         new_row = self.robot_position[0] + movement[action][0]
         new_col = self.robot_position[1] + movement[action][1]
 
-        # Check for boundaries
+        # --- Initialize reward ---
+        reward = -0.1  # Step penalty - small negative reward to encourage efficiency
+
         if 0 <= new_row < self.num_rows and 0 <= new_col < self.num_cols:
             new_position = (new_row, new_col)
-            # Check for obstacles
-            if new_position not in self.obstacle_positions:
+            if new_position in self.obstacle_positions:
+                reward = -10.0 # Penalty for hitting an obstacle
+                self.terminated = True
+            else:
                 self.robot_position = new_position
-                # Check if the robot reached the target position where the box is located
+
                 if self.robot_position == self.target_position:
-                    reward = 1
+                    reward = 100.0  # Reward for reaching the target
                     self.terminated = True
                 else:
-                    reward = 0
+                    # Manhattan distance
+                    old_dist = abs(self.robot_position[0] - self.target_position[0]) + \
+                            abs(self.robot_position[1] - self.target_position[1])
+                    new_dist = abs(new_position[0] - self.target_position[0]) + \
+                            abs(new_position[1] - self.target_position[1])
+                    
+                    # Small reward for getting closer
+                    reward += (old_dist - new_dist) * 0.1
                     self.terminated = False
-            else: # Robot collides with an obstacle - episode terminated
-                self.terminated = True
-                reward = -1 # Penalize the robot
         else:
-            # The robot moves outside grid boundaries - episode terminated
+            reward = -10.0 # Penalty for stepping out of bounds
             self.terminated = True
-            reward = -1
+
+        # --- Truncation condition ---
+        self.truncated = self.steps_taken >= self.max_steps
 
         # Update the grid
         self.grid = np.zeros((self.num_rows, self.num_cols))
@@ -213,3 +236,20 @@ class GridEnv(gym.Env):
     
     def _get_observation(self):
         return np.array(self.grid, dtype=np.int8)
+    
+    def _generate_layout(self):
+        # Initialize positions for all entities
+        # caution : we should not have overlapping positions
+        all_positions = list(product(range(self.num_rows), range(self.num_cols)))
+        robot_position = rd.choice(all_positions)
+        available_positions = [pos for pos in all_positions if pos != robot_position]
+        sampled_positions = rd.sample(available_positions, self.num_obstacles + 1)
+
+        # Assign positions for obstacles and target
+        obstacle_positions = sampled_positions[:-1]
+        target_position = sampled_positions[-1]
+
+        return robot_position, obstacle_positions, target_position
+    
+    def _randomize_layout(self):
+        self.current_layout = self._generate_layout()
