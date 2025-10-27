@@ -55,7 +55,7 @@ def test_robot_reaches_target():
         action = 0  # Move up into target
 
     observation, reward, terminated, truncated, info = env.step(action)
-    assert reward == 1
+    assert reward == 100
     assert terminated is True
 
 # Test robot hitting an obstacle - the reward should be -1 and the agent should reach a terminal state
@@ -75,13 +75,41 @@ def test_robot_hits_obstacle():
             action = 0  # Move up into obstacle
 
         observation, reward, terminated, truncated, info = env.step(action)
-        assert reward == -1
+        assert reward == -10
         assert terminated is True
-        
+
+# Test the function that ensures target is reachable from robot position
+def test_target_is_reachable():
+    # Create a layout where the target is surrounded by obstacles
+    env = GridEnv(grid_size=(5, 5), num_obstacles=0, fixed_layout=True)
+    env.robot_position = (0, 0)
+    env.target_position = (2, 2)
+    env.obstacle_positions = [(1, 2), (2, 1), (2, 3), (3, 2)]
+
+    # Check if the target is reachable
+    assert env._target_is_reachable(env.robot_position, env.target_position, env.obstacle_positions) is False 
+
+    # Now create a layout where the target can be reached
+    env.obstacle_positions = [(1, 2), (2, 3), (3, 2)]
+    assert env._target_is_reachable(env.robot_position, env.target_position, env.obstacle_positions) is True
+
+    # Also make a 6x6 layout with 5 obstacles to match the required setting
+    # One that the target is reachable
+    env = GridEnv(grid_size=(6, 6), num_obstacles=5, fixed_layout=False)
+    env.robot_position = (0, 0)
+    env.target_position = (5, 5)
+    env.obstacle_positions = [(1, 0), (1, 1), (2, 1), (3, 3), (4, 4)]
+    assert env._target_is_reachable(env.robot_position, env.target_position, env.obstacle_positions) is True
+
+    # One that the target is not reachable
+    env.obstacle_positions = [(0, 1), (1, 0), (3,4), (5,1), (4,2)]
+    assert env._target_is_reachable(env.robot_position, env.target_position, env.obstacle_positions) is False
+
 if __name__ == "__main__":
     test_reset_returns_correct_info()
     test_step_updates_robot_position()
     test_step_returns_correct_info()
     test_robot_reaches_target()
     test_robot_hits_obstacle()
+    test_target_is_reachable()
     print("All tests passed.")

@@ -8,6 +8,7 @@ import random as rd
 import numpy as np
 from itertools import product
 import pygame
+from collections import deque
 
 #===================================================================
 
@@ -90,7 +91,8 @@ class GridEnv(gym.Env):
         new_col = self.robot_position[1] + movement[action][1]
 
         # --- Initialize reward ---
-        reward = -0.1  # Step penalty - small negative reward to encourage efficiency
+        reward = 0.0
+        reward -= 0.1  # Step penalty - small negative reward to encourage efficiency
 
         if 0 <= new_row < self.num_rows and 0 <= new_col < self.num_cols:
             new_position = (new_row, new_col)
@@ -241,15 +243,40 @@ class GridEnv(gym.Env):
         # Initialize positions for all entities
         # caution : we should not have overlapping positions
         all_positions = list(product(range(self.num_rows), range(self.num_cols)))
-        robot_position = rd.choice(all_positions)
-        available_positions = [pos for pos in all_positions if pos != robot_position]
-        sampled_positions = rd.sample(available_positions, self.num_obstacles + 1)
-
-        # Assign positions for obstacles and target
-        obstacle_positions = sampled_positions[:-1]
-        target_position = sampled_positions[-1]
+        # Sample positions until a valid layout is found
+        while True:
+            robot_position = rd.choice(all_positions)
+            available_positions = [pos for pos in all_positions if pos != robot_position]
+            sampled_positions = rd.sample(available_positions, self.num_obstacles + 1)
+            # Assign positions for obstacles and target
+            obstacle_positions = sampled_positions[:-1]
+            target_position = sampled_positions[-1]
+            if self._target_is_reachable(robot_position, target_position, obstacle_positions):
+                break
 
         return robot_position, obstacle_positions, target_position
     
     def _randomize_layout(self):
         self.current_layout = self._generate_layout()
+
+    def _target_is_reachable(self, robot_position, target_position, obstacle_positions):
+        # Implement a simple BFS to check if target is reachable from robot position
+        queue = deque([robot_position])
+        visited = set()
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)] # Up, Down, Left, Right
+
+        while queue:
+            current = queue.popleft()
+            if current == target_position:
+                return True
+            visited.add(current)
+
+            for d in directions:
+                neighbor = (current[0] + d[0], current[1] + d[1])
+                if (0 <= neighbor[0] < self.num_rows and
+                    0 <= neighbor[1] < self.num_cols and
+                    neighbor not in visited and
+                    neighbor not in obstacle_positions):
+                    queue.append(neighbor)
+
+        return False
