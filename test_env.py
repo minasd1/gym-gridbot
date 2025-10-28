@@ -45,7 +45,7 @@ def test_step_returns_correct_info():
 
 # Test robot reaching target position - the reward should be 1 and the agent should reach a terminal state
 def test_robot_reaches_target():
-    env = GridEnv()
+    env = GridEnv(num_checkpoints=0)
     env.reset(seed=42)
 
     # Place robot near target (just above, for example)
@@ -168,26 +168,49 @@ def test_observation_channels():
             if (i, j) not in obstacle_positions:
                 assert observation[i, j, 1] == 0.0
 
-    # Check checkpoint channel (Channel 2)
-    for chk_pos in checkpoint_positions:
-        assert observation[chk_pos[0], chk_pos[1], 2] == 1.0
-    for i in range(env.grid_size[0]):
-        for j in range(env.grid_size[1]):
-            if (i, j) not in checkpoint_positions:
-                assert observation[i, j, 2] == 0.0
-
-    # Check target channel (Channel 3)
-    assert observation[target_pos[0], target_pos[1], 3] == 1.0
+    # Check target channel (Channel 2)
+    assert observation[target_pos[0], target_pos[1], 2] == 1.0
     for i in range(env.grid_size[0]):
         for j in range(env.grid_size[1]):
             if (i, j) != target_pos:
-                assert observation[i, j, 3] == 0.0
+                assert observation[i, j, 2] == 0.0
 
-    # Check free space channel (Channel 4)
+    # Check free space channel (Channel 3)
     for i in range(env.grid_size[0]):
         for j in range(env.grid_size[1]):
-            if (i, j) == robot_pos or (i, j) in obstacle_positions or (i, j) in checkpoint_positions or (i, j) == target_pos:
-                assert observation[i, j, 4] == 0.0 
+            if (i, j) == robot_pos or (i, j) in obstacle_positions or (i, j) == target_pos:
+                assert observation[i, j, 3] == 0.0
+
+    # Check next checkpoint channel (Channel 4)
+    if env.checkpoint_positions:
+        next_checkpoint = env.checkpoint_positions[0]
+        assert observation[next_checkpoint[0], next_checkpoint[1], 4] == 1.0
+        for i in range(env.grid_size[0]):
+            for j in range(env.grid_size[1]):
+                if (i, j) != next_checkpoint:
+                    assert observation[i, j, 4] == 0.0
+
+    # Check rest of the checkpoints if more than one (Channel 5)
+    if len(env.checkpoint_positions) > 1:
+        for chk_pos in env.checkpoint_positions[1:]:
+            assert observation[chk_pos[0], chk_pos[1], 5] == 1.0
+        for i in range(env.grid_size[0]):
+            for j in range(env.grid_size[1]):
+                if (i, j) not in env.checkpoint_positions[1:]:
+                    assert observation[i, j, 5] == 0.0
+
+# Test that checkpoints are reachable in sequence
+def test_checkpoints_reachable():
+    env = GridEnv(grid_size=(6, 6), num_obstacles=5, num_checkpoints=2, fixed_layout=True)
+    env.robot_position = (0, 0)
+    env.checkpoint_positions = [(0, 4), (2, 2)]
+    env.obstacle_positions = [(1, 0), (1, 1), (2, 1), (3, 3), (4, 3)]
+
+    assert env._checkpoints_reachable(env.robot_position, env.checkpoint_positions, env.obstacle_positions) is True
+
+    # Now create a layout where the second checkpoint is not reachable
+    env.obstacle_positions = [(1, 0), (1, 1), (0, 3), (0, 5), (1, 4)]
+    assert env._checkpoints_reachable(env.robot_position, env.checkpoint_positions, env.obstacle_positions) is False
 
 if __name__ == "__main__":
     test_reset_returns_correct_info()
@@ -199,4 +222,5 @@ if __name__ == "__main__":
     test_target_is_reachable()
     test_no_entity_overlap_in_layout()
     test_observation_channels()
+    test_checkpoints_reachable()
     print("All tests passed.")

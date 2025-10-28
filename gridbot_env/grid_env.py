@@ -123,7 +123,7 @@ class GridEnv(gym.Env):
                     if self.current_checkpoint_index == len(self.checkpoint_positions):
                         reward = 100.0  # Success
                     else:
-                        reward = -0.1  # Failure (skipped checkpoints)
+                        reward = -10.0  # Failure (skipped checkpoints)
                 
                 # Normal move
                 else:
@@ -322,9 +322,10 @@ class GridEnv(gym.Env):
             sampled_positions = rd.sample(available_positions, self.num_obstacles + self.num_checkpoints+ 1)
             # Assign positions for obstacles and target
             obstacle_positions = sampled_positions[:self.num_obstacles]
+            # Assign positions for checkpoints
             checkpoint_positions = sampled_positions[self.num_obstacles:self.num_obstacles + self.num_checkpoints]
             target_position = sampled_positions[-1]
-            if self._target_is_reachable(robot_position, target_position, obstacle_positions):
+            if self._target_is_reachable(robot_position, target_position, obstacle_positions)and self._checkpoints_reachable(robot_position, checkpoint_positions, obstacle_positions):
                 break
 
         return robot_position, obstacle_positions, checkpoint_positions, target_position
@@ -353,3 +354,12 @@ class GridEnv(gym.Env):
                     queue.append(neighbor)
 
         return False
+    
+    def _checkpoints_reachable(self, robot_position, checkpoint_positions, obstacle_positions):
+        # Check if all checkpoints are reachable in sequence
+        current_position = robot_position
+        for cp in checkpoint_positions:
+            if not self._target_is_reachable(current_position, cp, obstacle_positions):
+                return False
+            current_position = cp
+        return True
