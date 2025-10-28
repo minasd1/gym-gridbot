@@ -15,8 +15,10 @@ from collections import deque
 class GridEnv(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4}
 
-    def __init__(self, render_mode = None, grid_size = (NUM_ROWS, NUM_COLS), num_obstacles = NUM_OBSTACLES, fixed_layout = True):
+    def __init__(self, render_mode = None, grid_size = (NUM_ROWS, NUM_COLS), num_obstacles = NUM_OBSTACLES, 
+                 num_checkpoints = NUM_CHECKPOINTS, fixed_layout = True):
         super(GridEnv, self).__init__() # inherit from gym.Env
+        self.grid_size = grid_size
         self.num_rows = grid_size[0]
         self.num_cols = grid_size[1]
         self.window_size = 512  # The size of the PyGame window
@@ -24,10 +26,11 @@ class GridEnv(gym.Env):
         # Initialize the 2D grid environment
         self.grid = np.zeros((self.num_rows, self.num_cols))
         self.num_obstacles = num_obstacles
+        self.num_checkpoints = num_checkpoints
         self.action_space = gym.spaces.Discrete(4)  # Up, Down, Left, Right
 
-        # Modified observation space to be 4-channel
-        self.observation_space = gym.spaces.Box(low=0.0, high=1.0, shape=(self.num_rows, self.num_cols, 4), dtype=np.float32)
+        # Modified observation space to be 5-channel
+        self.observation_space = gym.spaces.Box(low=0.0, high=1.0, shape=(self.num_rows, self.num_cols, 5), dtype=np.float32)
 
         self.terminated = False
         self.truncated = False
@@ -42,6 +45,7 @@ class GridEnv(gym.Env):
 
         self.robot_position = None
         self.obstacle_positions = None
+        self.checkpoint_positions = None
         self.target_position = None
 
     def reset(self, *, seed = None, options = None):
@@ -54,10 +58,10 @@ class GridEnv(gym.Env):
             if self.current_layout is None:
                 self.current_layout = self._generate_layout()
             # Use the stored layout
-            self.robot_position, self.obstacle_positions, self.target_position = self.current_layout
+            self.robot_position, self.obstacle_positions, self.checkpoint_positions, self.target_position = self.current_layout
         else:
             # Generate a new layout each reset
-            self.robot_position, self.obstacle_positions, self.target_position = self._generate_layout()
+            self.robot_position, self.obstacle_positions, self.checkpoint_positions, self.target_position = self._generate_layout()
 
         self.terminated = False
         self.truncated = False
@@ -102,6 +106,9 @@ class GridEnv(gym.Env):
                     reward = 100.0 # Reward for reaching the target
                     self.terminated = True
                 else:
+                    if self.robot_position in self.checkpoint_positions:
+                        reward = 50.0 # Reward for reaching a checkpoint
+                        self.checkpoint_positions.remove(self.robot_position) # Remove checkpoint once reached
                     self.terminated = False
         else:
             reward = -10.0 # Penalty for stepping out of bounds
@@ -214,30 +221,37 @@ class GridEnv(gym.Env):
         return {
             "robot_position": self.robot_position,
             "target_position": self.target_position,
-            "obstacle_positions": self.obstacle_positions
+            "obstacle_positions": self.obstacle_positions,
+            "checkpoint_positions": self.checkpoint_positions
         }
 
     def _get_observation(self):
 
-        # Create 4-channel observation
-        obs = np.zeros((self.num_rows, self.num_cols, 4), dtype=np.float32)
-        
+        # Create 5-channel observation
+        obs = np.zeros((self.num_rows, self.num_cols, 5), dtype=np.float32)
+
         # Channel 0: Robot position (binary mask)
         obs[self.robot_position[0], self.robot_position[1], 0] = 1.0
         
         # Channel 1: Obstacles
         for obs_pos in self.obstacle_positions:
             obs[obs_pos[0], obs_pos[1], 1] = 1.0
+
+        # Channel 2: Checkpoints
+        for obs_pos in self.checkpoint_positions:
+            obs[obs_pos[0], obs_pos[1], 2] = 1.0
         
-        # Channel 2: Target position
-        obs[self.target_position[0], self.target_position[1], 2] = 1.0
+        # Channel 3: Target position
+        obs[self.target_position[0], self.target_position[1], 3] = 1.0
         
-        # Channel 3: Free space (everywhere except entities)
-        obs[:, :, 3] = 1.0  # Start with all 1s
-        obs[self.robot_position[0], self.robot_position[1], 3] = 0.0
+        # Channel 4: Free space (everywhere except entities)
+        obs[:, :, 4] = 1.0  # Start with all 1s
+        obs[self.robot_position[0], self.robot_position[1], 4] = 0.0
         for obs_pos in self.obstacle_positions:
-            obs[obs_pos[0], obs_pos[1], 3] = 0.0
-        obs[self.target_position[0], self.target_position[1], 3] = 0.0
+            obs[obs_pos[0], obs_pos[1], 4] = 0.0
+        for obs_pos in self.checkpoint_positions:
+            obs[obs_pos[0], obs_pos[1], 4] = 0.0
+        obs[self.target_position[0], self.target_position[1], 4] = 0.0
         
         return obs
     
@@ -249,14 +263,15 @@ class GridEnv(gym.Env):
         while True:
             robot_position = rd.choice(all_positions)
             available_positions = [pos for pos in all_positions if pos != robot_position]
-            sampled_positions = rd.sample(available_positions, self.num_obstacles + 1)
+            sampled_positions = rd.sample(available_positions, self.num_obstacles + self.num_checkpoints+ 1)
             # Assign positions for obstacles and target
-            obstacle_positions = sampled_positions[:-1]
+            obstacle_positions = sampled_positions[:self.num_obstacles]
+            checkpoint_positions = sampled_positions[self.num_obstacles:self.num_obstacles + self.num_checkpoints]
             target_position = sampled_positions[-1]
             if self._target_is_reachable(robot_position, target_position, obstacle_positions):
                 break
 
-        return robot_position, obstacle_positions, target_position
+        return robot_position, obstacle_positions, checkpoint_positions, target_position
     
     def _randomize_layout(self):
         self.current_layout = self._generate_layout()
