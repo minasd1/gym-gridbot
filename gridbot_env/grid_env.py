@@ -18,6 +18,9 @@ class GridEnv(gym.Env):
     def __init__(self, render_mode = None, grid_size = (NUM_ROWS, NUM_COLS), num_obstacles = NUM_OBSTACLES, 
                  num_checkpoints = NUM_CHECKPOINTS, fixed_layout = True):
         super(GridEnv, self).__init__() # inherit from gym.Env
+        self.checkpoints_visited = []
+        self.current_checkpoint_index = 0 # Track current checkpoint to visit
+
         self.grid_size = grid_size
         self.num_rows = grid_size[0]
         self.num_cols = grid_size[1]
@@ -29,8 +32,9 @@ class GridEnv(gym.Env):
         self.num_checkpoints = num_checkpoints
         self.action_space = gym.spaces.Discrete(4)  # Up, Down, Left, Right
 
-        # Modified observation space to be 5-channel
-        self.observation_space = gym.spaces.Box(low=0.0, high=1.0, shape=(self.num_rows, self.num_cols, 5), dtype=np.float32)
+        # Modified observation space to be 6-channel
+        self.observation_space = gym.spaces.Box(low=0.0, high=1.0,
+            shape=(self.num_rows, self.num_cols, 6), dtype=np.float32)
 
         self.terminated = False
         self.truncated = False
@@ -51,7 +55,9 @@ class GridEnv(gym.Env):
     def reset(self, *, seed = None, options = None):
         super().reset(seed=seed)
         self.steps_taken = 0
-        self.max_steps = 50
+        self.max_steps = 100 # Previously 50 - need more steps for checkpoints
+        self.checkpoints_visited = []
+        self.current_checkpoint_index = 0
 
         if self.fixed_layout:
             # Generate layout once on first reset, then reuse
@@ -89,29 +95,42 @@ class GridEnv(gym.Env):
         # Calculate new position
         new_row = self.robot_position[0] + movement[action][0]
         new_col = self.robot_position[1] + movement[action][1]
-
-        # Sparse rewards approach
-        reward = -0.1  # Small step penalty
+        
+        # Initialize reward
+        reward = -0.1  # Step penalty
 
         if 0 <= new_row < self.num_rows and 0 <= new_col < self.num_cols:
             new_position = (new_row, new_col)
             
             if new_position in self.obstacle_positions:
-                reward = -10.0 # Penalty for hitting an obstacle
+                reward = -10.0  # Penalty for hitting obstacle
                 self.terminated = True
             else:
                 self.robot_position = new_position
                 
-                if self.robot_position == self.target_position:
-                    reward = 100.0 # Reward for reaching the target
+                if (self.current_checkpoint_index < len(self.checkpoint_positions) and
+                    self.robot_position == self.checkpoint_positions[self.current_checkpoint_index]):
+                    
+                    reward = 50.0  # Reward for reaching checkpoint
+                    self.checkpoints_visited.append(self.robot_position)
+                    self.current_checkpoint_index += 1  # Advance to next
+                    self.terminated = False 
+                
+                elif self.robot_position == self.target_position:
                     self.terminated = True
+                    
+                    # Give reward based on whether all checkpoints visited
+                    if self.current_checkpoint_index == len(self.checkpoint_positions):
+                        reward = 100.0  # Success
+                    else:
+                        reward = -0.1  # Failure (skipped checkpoints)
+                
+                # Normal move
                 else:
-                    if self.robot_position in self.checkpoint_positions:
-                        reward = 50.0 # Reward for reaching a checkpoint
-                        self.checkpoint_positions.remove(self.robot_position) # Remove checkpoint once reached
+                    reward = -0.1
                     self.terminated = False
         else:
-            reward = -10.0 # Penalty for stepping out of bounds
+            reward = -10.0  # Penalty for stepping out of bounds
             self.terminated = True
 
         # --- Truncation condition ---
@@ -177,6 +196,33 @@ class GridEnv(gym.Env):
                 ),
             )
 
+        # Now we draw the checkpoints
+        # Starting with the next checkpoint
+        if self.current_checkpoint_index < len(self.checkpoint_positions):
+            next_cp = self.checkpoint_positions[self.current_checkpoint_index]
+            pygame.draw.circle(
+                canvas,
+                (255, 215, 0),  # Gold color
+                (
+                    (next_cp[1] + 0.5) * pix_square_size,
+                    (next_cp[0] + 0.5) * pix_square_size,
+                ),
+                pix_square_size / 4,
+            )
+    
+        # And drawing remaining checkpoints
+        for i in range(self.current_checkpoint_index + 1, len(self.checkpoint_positions)):
+            cp = self.checkpoint_positions[i]
+            pygame.draw.circle(
+                canvas,
+                (255, 165, 0),  # Orange color
+                (
+                    (cp[1] + 0.5) * pix_square_size,
+                    (cp[0] + 0.5) * pix_square_size,
+                ),
+                pix_square_size / 4,
+            )
+
         # Finally, add some gridlines
         for x in range(self.num_rows + 1):
             pygame.draw.line(
@@ -222,13 +268,15 @@ class GridEnv(gym.Env):
             "robot_position": self.robot_position,
             "target_position": self.target_position,
             "obstacle_positions": self.obstacle_positions,
-            "checkpoint_positions": self.checkpoint_positions
+            "checkpoint_positions": self.checkpoint_positions,
+            "checkpoints_visited": self.checkpoints_visited,
+            "current_checkpoint_index": self.current_checkpoint_index,
         }
 
     def _get_observation(self):
 
-        # Create 5-channel observation
-        obs = np.zeros((self.num_rows, self.num_cols, 5), dtype=np.float32)
+        # Create 6-channel observation
+        obs = np.zeros((self.num_rows, self.num_cols, 6), dtype=np.float32)
 
         # Channel 0: Robot position (binary mask)
         obs[self.robot_position[0], self.robot_position[1], 0] = 1.0
@@ -237,22 +285,30 @@ class GridEnv(gym.Env):
         for obs_pos in self.obstacle_positions:
             obs[obs_pos[0], obs_pos[1], 1] = 1.0
 
-        # Channel 2: Checkpoints
-        for obs_pos in self.checkpoint_positions:
-            obs[obs_pos[0], obs_pos[1], 2] = 1.0
-        
-        # Channel 3: Target position
-        obs[self.target_position[0], self.target_position[1], 3] = 1.0
-        
-        # Channel 4: Free space (everywhere except entities)
-        obs[:, :, 4] = 1.0  # Start with all 1s
-        obs[self.robot_position[0], self.robot_position[1], 4] = 0.0
+        # Channel 2: Target position
+        obs[self.target_position[0], self.target_position[1], 2] = 1.0
+
+        # Channel 3: Free space (everywhere except entities)
+        obs[:, :, 3] = 1.0  # Start with all 1s
+        obs[self.robot_position[0], self.robot_position[1], 3] = 0.0
         for obs_pos in self.obstacle_positions:
-            obs[obs_pos[0], obs_pos[1], 4] = 0.0
+            obs[obs_pos[0], obs_pos[1], 3] = 0.0
         for obs_pos in self.checkpoint_positions:
-            obs[obs_pos[0], obs_pos[1], 4] = 0.0
-        obs[self.target_position[0], self.target_position[1], 4] = 0.0
+            obs[obs_pos[0], obs_pos[1], 3] = 0.0
+        obs[self.target_position[0], self.target_position[1], 3] = 0.0
+
+        # Channel 4: Next checkpoint (the one to visit now)
+        if self.current_checkpoint_index < len(self.checkpoint_positions):
+            next_cp = self.checkpoint_positions[self.current_checkpoint_index]
+            obs[next_cp[0], next_cp[1], 4] = 1.0
+            obs[next_cp[0], next_cp[1], 3] = 0.0  # Mark as not free
         
+        # Channel 5: Remaining checkpoints (future ones)
+        for i in range(self.current_checkpoint_index + 1, len(self.checkpoint_positions)):
+            cp = self.checkpoint_positions[i]
+            obs[cp[0], cp[1], 5] = 1.0
+            obs[cp[0], cp[1], 3] = 0.0  # Mark as not free
+                
         return obs
     
     def _generate_layout(self):
