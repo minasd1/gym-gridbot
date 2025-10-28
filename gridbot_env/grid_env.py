@@ -25,8 +25,10 @@ class GridEnv(gym.Env):
         self.grid = np.zeros((self.num_rows, self.num_cols))
         self.num_obstacles = num_obstacles
         self.action_space = gym.spaces.Discrete(4)  # Up, Down, Left, Right
-        # The different values in the observation space: (0: empty, 1: robot, 2: obstacle, 3: target)
-        self.observation_space = gym.spaces.Box(low=0, high=3, shape=(self.num_rows, self.num_cols), dtype=np.int8)
+
+        # Modified observation space to be 4-channel
+        self.observation_space = gym.spaces.Box(low=0.0, high=1.0, shape=(self.num_rows, self.num_cols, 4), dtype=np.float32)
+
         self.terminated = False
         self.truncated = False
 
@@ -57,12 +59,6 @@ class GridEnv(gym.Env):
             # Generate a new layout each reset
             self.robot_position, self.obstacle_positions, self.target_position = self._generate_layout()
 
-        # Place robot, obstacles, and target in the grid
-        self.grid[self.robot_position] = 1
-        for obs_pos in self.obstacle_positions:
-            self.grid[obs_pos] = 2
-        self.grid[self.target_position] = 3
-
         self.terminated = False
         self.truncated = False
 
@@ -90,30 +86,22 @@ class GridEnv(gym.Env):
         new_row = self.robot_position[0] + movement[action][0]
         new_col = self.robot_position[1] + movement[action][1]
 
-        # --- Initialize reward ---
-        reward = 0.0
-        reward -= 0.1  # Step penalty - small negative reward to encourage efficiency
+        # Sparse rewards approach
+        reward = -0.1  # Small step penalty
 
         if 0 <= new_row < self.num_rows and 0 <= new_col < self.num_cols:
             new_position = (new_row, new_col)
+            
             if new_position in self.obstacle_positions:
                 reward = -10.0 # Penalty for hitting an obstacle
                 self.terminated = True
             else:
                 self.robot_position = new_position
-
+                
                 if self.robot_position == self.target_position:
-                    reward = 100.0  # Reward for reaching the target
+                    reward = 100.0 # Reward for reaching the target
                     self.terminated = True
                 else:
-                    # Manhattan distance
-                    old_dist = abs(self.robot_position[0] - self.target_position[0]) + \
-                            abs(self.robot_position[1] - self.target_position[1])
-                    new_dist = abs(new_position[0] - self.target_position[0]) + \
-                            abs(new_position[1] - self.target_position[1])
-                    
-                    # Small reward for getting closer
-                    reward += (old_dist - new_dist) * 0.1
                     self.terminated = False
         else:
             reward = -10.0 # Penalty for stepping out of bounds
@@ -121,13 +109,6 @@ class GridEnv(gym.Env):
 
         # --- Truncation condition ---
         self.truncated = self.steps_taken >= self.max_steps
-
-        # Update the grid
-        self.grid = np.zeros((self.num_rows, self.num_cols))
-        self.grid[self.robot_position] = 1
-        for obs_pos in self.obstacle_positions:
-            self.grid[obs_pos] = 2
-        self.grid[self.target_position] = 3
 
         observation = self._get_observation()
         info = self._get_info()
@@ -235,9 +216,30 @@ class GridEnv(gym.Env):
             "target_position": self.target_position,
             "obstacle_positions": self.obstacle_positions
         }
-    
+
     def _get_observation(self):
-        return np.array(self.grid, dtype=np.int8)
+
+        # Create 4-channel observation
+        obs = np.zeros((self.num_rows, self.num_cols, 4), dtype=np.float32)
+        
+        # Channel 0: Robot position (binary mask)
+        obs[self.robot_position[0], self.robot_position[1], 0] = 1.0
+        
+        # Channel 1: Obstacles
+        for obs_pos in self.obstacle_positions:
+            obs[obs_pos[0], obs_pos[1], 1] = 1.0
+        
+        # Channel 2: Target position
+        obs[self.target_position[0], self.target_position[1], 2] = 1.0
+        
+        # Channel 3: Free space (everywhere except entities)
+        obs[:, :, 3] = 1.0  # Start with all 1s
+        obs[self.robot_position[0], self.robot_position[1], 3] = 0.0
+        for obs_pos in self.obstacle_positions:
+            obs[obs_pos[0], obs_pos[1], 3] = 0.0
+        obs[self.target_position[0], self.target_position[1], 3] = 0.0
+        
+        return obs
     
     def _generate_layout(self):
         # Initialize positions for all entities
