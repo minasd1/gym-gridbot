@@ -23,7 +23,7 @@ chmod +x install.sh
 
 After setup, please verify the installation:
 ```bash
-python -c "import gridbot_env; print('Installation successful!')"
+python -c "import gridbot_env; print('Installation successful')"
 ```
 
 ## Training the Agents
