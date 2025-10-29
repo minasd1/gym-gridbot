@@ -37,7 +37,7 @@ source venv/bin/activate
 
 #### Base Environment (Part 3 - No Checkpoints)
 ```bash
-python train_ppo.py
+python train_ppo_agent.py
 ```
 - Trains on 6x6 grid with 5 obstacles
 - 3,000,000 timesteps
@@ -45,7 +45,7 @@ python train_ppo.py
 
 #### Checkpoint Environment (Bonus 2)
 ```bash
-python train_ppo.py --checkpoints
+python train_ppo_agent.py --checkpoints
 ```
 - Uses curriculum learning (3 stages)
 - Progressive difficulty: 3 obstacles/1 checkpoint → 5 obstacles/1 checkpoint → 5 obstacles/2 checkpoints
@@ -53,10 +53,10 @@ python train_ppo.py --checkpoints
 
 #### Custom Training Options
 ```bash
-python train_ppo.py --save-path models/custom_ppo/
+python train_ppo_agent.py --save-path models/custom_ppo/
 
 # Or, for checkpoint environment:
-python train_ppo.py --checkpoints --save-path models/my_experiment/
+python train_ppo_agent.py --checkpoints --save-path models/my_experiment/
 ```
 
 ### Training DQN Agent (Only for base environment)
