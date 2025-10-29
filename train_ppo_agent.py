@@ -69,11 +69,12 @@ class RandomLayoutEvalCallback(BaseCallback):
                         info["robot_position"] == info["target_position"] and
                         info["current_checkpoint_index"] == len(info["checkpoint_positions"])):
                         successes += 1
+                        break
                 else:
                     # Success = just reached target
                     if terminated and info["robot_position"] == info["target_position"]:
                         successes += 1
-                break
+                        break
                 
         return successes / self.n_eval_episodes
 
@@ -140,13 +141,10 @@ def main():
         env_kwargs = {
             'grid_size': stage["grid_size"],
             'num_obstacles': stage["num_obstacles"],
+            'num_checkpoints': stage["num_checkpoints"],
             'fixed_layout': False,
             'render_mode': None
         }
-        
-        # Add checkpoints only if in checkpoint mode
-        if use_checkpoints:
-            env_kwargs['num_checkpoints'] = stage["num_checkpoints"]
 
         # Create training environment
         train_env = make_vec_env(GridEnv, n_envs=8, env_kwargs=env_kwargs, seed=42)

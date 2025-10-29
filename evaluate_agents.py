@@ -227,7 +227,7 @@ Examples:
     parser.add_argument('--checkpoints', action='store_true',
                        help='Evaluate on checkpoint environment (Bonus 2)')
     parser.add_argument('--model', type=str, default=None,
-                       help='Path to model file (default: models/ppo/best_model.zip or models/ppo_checkpoint/best_model.zip)')
+                       help='Path to model file (default: models/ppo/ppo_final.zip or models/ppo_checkpoint/ppo_final.zip)')
     parser.add_argument('--episodes', type=int, default=100,
                        help='Number of evaluation episodes (default: 100)')
     parser.add_argument('--num-checkpoints', type=int, default=2,
@@ -240,9 +240,9 @@ Examples:
         model_path = args.model
     else:
         if args.checkpoints:
-            model_path = "models/ppo_checkpoint/best_model.zip"
+            model_path = "models/ppo_checkpoint/ppo_final.zip"
         else:
-            model_path = "models/ppo/best_model.zip"
+            model_path = "models/ppo/ppo_final.zip"
     
     # Run evaluation
     if args.checkpoints:

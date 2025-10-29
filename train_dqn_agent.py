@@ -68,6 +68,7 @@ class RandomLayoutEvalCallback(BaseCallback):
 env_kwargs = {
     'grid_size': (6, 6),
     'num_obstacles': 5,
+    'num_checkpoints': 0,
     'fixed_layout': False,
     'render_mode': None
 }
