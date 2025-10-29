@@ -64,6 +64,7 @@ python train_ppo_agent.py --checkpoints --save-path models/my_experiment/
 python train_dqn_agent.py
 ```
 - Models saved to `models/dqn/`
+- **CAUTION:** During training, verbose is by default not activated, for performance reasons.
 
 ## Evaluating the Agents
 
