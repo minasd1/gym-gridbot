@@ -98,7 +98,7 @@ def test_robot_reaches_checkpoint():
             action = 0  # Move up into checkpoint
 
         observation, reward, terminated, truncated, info = env.step(action)
-        print("Checkpoint test: reward =", reward, "terminated =", terminated)
+        
         assert reward == 50
         assert terminated is False
 

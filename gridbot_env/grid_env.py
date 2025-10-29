@@ -32,9 +32,13 @@ class GridEnv(gym.Env):
         self.num_checkpoints = num_checkpoints
         self.action_space = gym.spaces.Discrete(4)  # Up, Down, Left, Right
 
-        # Modified observation space to be 6-channel
+        if num_checkpoints == 0: 
+            third_dim = 4
+        else: 
+            third_dim = 6
+
         self.observation_space = gym.spaces.Box(low=0.0, high=1.0,
-            shape=(self.num_rows, self.num_cols, 6), dtype=np.float32)
+            shape=(self.num_rows, self.num_cols, third_dim), dtype=np.float32)
 
         self.terminated = False
         self.truncated = False
@@ -275,8 +279,13 @@ class GridEnv(gym.Env):
 
     def _get_observation(self):
 
-        # Create 6-channel observation
-        obs = np.zeros((self.num_rows, self.num_cols, 6), dtype=np.float32)
+        if self.num_checkpoints == 0:
+            third_dim = 4
+        else:
+            third_dim = 6
+
+        # Create observation
+        obs = np.zeros((self.num_rows, self.num_cols, third_dim), dtype=np.float32)
 
         # Channel 0: Robot position (binary mask)
         obs[self.robot_position[0], self.robot_position[1], 0] = 1.0

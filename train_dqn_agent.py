@@ -19,7 +19,7 @@ import os
 # Same as PPO callback
 class RandomLayoutEvalCallback(BaseCallback):
     def __init__(self, env_kwargs, eval_freq=10000, n_eval_episodes=50, 
-                 save_path="models/dqn_test_2/", verbose=0):
+                 save_path="models/dqn/", verbose=0):
         super().__init__(verbose=verbose)
         self.eval_freq = eval_freq
         self.n_eval_episodes = n_eval_episodes
@@ -58,9 +58,9 @@ class RandomLayoutEvalCallback(BaseCallback):
             done = False
             while not done:
                 action, _ = self.model.predict(obs, deterministic=True)
-                obs, reward, terminated, truncated, _ = self.eval_env.step(action)
+                obs, reward, terminated, truncated, info = self.eval_env.step(action)
                 done = terminated or truncated
-                if terminated and reward > 50:
+                if terminated and info["robot_position"] == info["target_position"]:
                     successes += 1
                     break
         return successes / self.n_eval_episodes
@@ -80,7 +80,7 @@ eval_cb = RandomLayoutEvalCallback(
     env_kwargs, 
     eval_freq=10000, 
     n_eval_episodes=50, 
-    save_path="models/dqn_test_2/",
+    save_path="models/dqn/",
     verbose=0
 )
 
@@ -90,7 +90,7 @@ model = DQN(
     "MlpPolicy",
     train_env,
     verbose=0,
-    tensorboard_log="./logs/dqn_test_2/",
+    tensorboard_log="./logs/dqn/",
     device="cpu", 
     
     learning_rate=3e-4,           # 3 times higher (was 1e-4)
@@ -139,10 +139,10 @@ print(f"\n{'='*60}")
 print(" Training Complete!")
 print(f"{'='*60}")
 print(f" Best success rate achieved: {eval_cb.best_success_rate:.1%}")
-print(f" Best model saved to: models/dqn_test_2/best_model.zip")
+print(f" Best model saved to: models/dqn/best_model.zip")
 
-model.save("models/dqn_test_2/dqn_final")
-print(" Final model saved to: models/dqn_test_2/dqn_final.zip")
+model.save("models/dqn/dqn_final")
+print(" Final model saved to: models/dqn/dqn_final.zip")
 
 train_env.close()
 eval_cb.eval_env.close()
