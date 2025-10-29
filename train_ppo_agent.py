@@ -2,6 +2,7 @@
   # Training using PPO Algorithm for GridBot Environment #
 #===================================================================
 
+import argparse
 from gymnasium.envs.registration import register
 register(
     id='GridBot-v0',
@@ -18,7 +19,7 @@ import os
 
 class RandomLayoutEvalCallback(BaseCallback):
     def __init__(self, env_kwargs, eval_freq=10000, n_eval_episodes=50, 
-                 save_path="models/ppo_test/", verbose=1):
+                 save_path="models/ppo/", verbose=1, use_checkpoints=False):
         super().__init__(verbose)
         self.eval_freq = eval_freq
         self.n_eval_episodes = n_eval_episodes
@@ -26,6 +27,7 @@ class RandomLayoutEvalCallback(BaseCallback):
         self.best_success_rate = 0.0
         self.eval_count = 0
         self.env_kwargs = env_kwargs
+        self.use_checkpoints = use_checkpoints # Track mode
         
         os.makedirs(save_path, exist_ok=True)
         self.eval_env = GridEnv(**env_kwargs)
@@ -57,85 +59,162 @@ class RandomLayoutEvalCallback(BaseCallback):
             done = False
             while not done:
                 action, _ = self.model.predict(obs, deterministic=True)
-                obs, reward, terminated, truncated, _ = self.eval_env.step(action)
+                obs, reward, terminated, truncated, info = self.eval_env.step(action)
                 done = terminated or truncated
-                if terminated and reward > 50:
-                    successes += 1
-                    break
+                
+                # Check success based on mode
+                if self.use_checkpoints:
+                    # Success = reached target with all checkpoints
+                    if (terminated and 
+                        info["robot_position"] == info["target_position"] and
+                        info["current_checkpoint_index"] == len(info["checkpoint_positions"])):
+                        successes += 1
+                else:
+                    # Success = just reached target
+                    if terminated and info["robot_position"] == info["target_position"]:
+                        successes += 1
+                break
+                
         return successes / self.n_eval_episodes
 
-curriculum = [ # Kept curriculum learning stages for reference
-    # {"grid_size": (6, 6), "num_obstacles": 0, "timesteps": 300_000},
-    # {"grid_size": (6, 6), "num_obstacles": 1, "timesteps": 400_000},
-    # {"grid_size": (6, 6), "num_obstacles": 2, "timesteps": 500_000},
-    # {"grid_size": (6, 6), "num_obstacles": 3, "timesteps": 600_000},
-    # {"grid_size": (6, 6), "num_obstacles": 4, "timesteps": 800_000},
-    {"grid_size": (6, 6), "num_obstacles": 5, "timesteps": 1_500_000},  # Final target
-]
+#===================================================================
 
-model = None
+def main():
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description='Train PPO agent for GridBot environment')
+    parser.add_argument('--checkpoints', action='store_true', 
+                       help='Train with checkpoint environment (Bonus 2)')
+    parser.add_argument('--save-path', type=str, default=None,
+                       help='Custom save path for models (default: models/ppo/ or models/ppo_checkpoint/)')
+    args = parser.parse_args()
 
-# The structure of the curriculum loop remains for reference
-for stage_idx, stage in enumerate(curriculum):
-    print(f"\n{'='*60}")
-    print(f"Stage {stage_idx+1}/{len(curriculum)}")
-    print(f"Grid: {stage['grid_size']}, Obstacles: {stage['num_obstacles']}")
-    print(f"Training for {stage['timesteps']:,} timesteps")
-    print(f"{'='*60}")
-
-    env_kwargs = {
-        'grid_size': stage["grid_size"],
-        'num_obstacles': stage["num_obstacles"],
-        'fixed_layout': False,
-        'render_mode': None
-    }
-
-    train_env = make_vec_env(GridEnv, n_envs=8, env_kwargs=env_kwargs, seed=42)
-    eval_cb = RandomLayoutEvalCallback(env_kwargs, eval_freq=10000, n_eval_episodes=50, verbose=1)
-
-    if model is None:
-        # Create model for first stage
-        model = PPO(
-            "MlpPolicy",
-            train_env,
-            verbose=1,
-            tensorboard_log="./logs/ppo_test/",
-            device="cpu",
-            learning_rate=3e-4,
-            n_steps=2048,
-            batch_size=64,
-            n_epochs=10,
-            gamma=0.99,
-            gae_lambda=0.95,
-            clip_range=0.2,
-            ent_coef=0.15,  # Higher exploration for harder task
-            max_grad_norm=0.5,
-        )
-    else:
-        # Continue with existing model on new environment
-        model.set_env(train_env)
-
-    # Train
-    model.learn(total_timesteps=stage['timesteps'], callback=eval_cb)
+    use_checkpoints = args.checkpoints
     
-    print(f"\n Stage {stage_idx+1} complete!")
-    print(f"  Best success rate: {eval_cb.best_success_rate:.1%}")
+    # Set save path based on mode
+    if args.save_path:
+        save_path = args.save_path
+    else:
+        save_path = "models/ppo_checkpoint/" if use_checkpoints else "models/ppo/"
+    
+    print("\n" + "="*60)
+    if use_checkpoints:
+        print("Training PPO with CHECKPOINT environment (Bonus 2)")
+    else:
+        print("Training PPO with BASE environment (Part 3)")
+    print("="*60)
 
-    # Save checkpoint
-    model.save(f"models/ppo_test/stage_{stage_idx+1}")
+    # Define curriculum based on mode
+    if use_checkpoints:
+        # Checkpoint curriculum: progressive complexity
+        curriculum = [
+            # Stage 1: Learn basic checkpoint behavior with moderate obstacles
+            {"grid_size": (6, 6), "num_obstacles": 3, "num_checkpoints": 1, "timesteps": 500_000},
+            
+            # Stage 2: Same complexity, but with target obstacle density
+            {"grid_size": (6, 6), "num_obstacles": 5, "num_checkpoints": 1, "timesteps": 800_000},
 
-    # If final stage and success rate too low, train more
-    if stage_idx == len(curriculum) - 1 and eval_cb.best_success_rate < 0.6:
-        print("\n Final stage success rate below 60%. Training additional 1M timesteps...")
-        model.learn(total_timesteps=1_000_000, callback=eval_cb)
-        print(f"  New success rate: {eval_cb.best_success_rate:.1%}")
+            # Stage 3: Add second checkpoint at target density
+            {"grid_size": (6, 6), "num_obstacles": 5, "num_checkpoints": 2, "timesteps": 1_500_000},
+        ]
+    else:
+        # Base environment: single stage with 3M timesteps
+        curriculum = [
+            {"grid_size": (6, 6), "num_obstacles": 5, "num_checkpoints": 0, "timesteps": 3_000_000},
+        ]
 
-    train_env.close()
-    eval_cb.eval_env.close()
+    model = None
 
-print("\n" + "=" * 60)
-print("Curriculum Training Complete!")
-print("=" * 60)
+    # Training loop
+    for stage_idx, stage in enumerate(curriculum):
+        print(f"\n{'='*60}")
+        print(f"Stage {stage_idx+1}/{len(curriculum)}")
+        print(f"Grid: {stage['grid_size']}, Obstacles: {stage['num_obstacles']}", end="")
+        if use_checkpoints:
+            print(f", Checkpoints: {stage['num_checkpoints']}")
+        else:
+            print()
+        print(f"Training for {stage['timesteps']:,} timesteps")
+        print(f"{'='*60}")
 
-model.save("models/ppo_test/ppo_final")
-print("\n Final model saved!")
+        # Set up environment kwargs
+        env_kwargs = {
+            'grid_size': stage["grid_size"],
+            'num_obstacles': stage["num_obstacles"],
+            'fixed_layout': False,
+            'render_mode': None
+        }
+        
+        # Add checkpoints only if in checkpoint mode
+        if use_checkpoints:
+            env_kwargs['num_checkpoints'] = stage["num_checkpoints"]
+
+        # Create training environment
+        train_env = make_vec_env(GridEnv, n_envs=8, env_kwargs=env_kwargs, seed=42)
+        
+        # Create evaluation callback
+        eval_cb = RandomLayoutEvalCallback(
+            env_kwargs, 
+            eval_freq=10000, 
+            n_eval_episodes=50, 
+            save_path=save_path,
+            verbose=1,
+            use_checkpoints=use_checkpoints
+        )
+
+        if model is None:
+            # Create model for first stage
+            print("\nCreating new PPO model...")
+            model = PPO(
+                "MlpPolicy",
+                train_env,
+                verbose=1,
+                tensorboard_log="./logs/ppo/",
+                device="cpu",
+                learning_rate=3e-4,
+                n_steps=2048,
+                batch_size=64,
+                n_epochs=10,
+                gamma=0.99,
+                gae_lambda=0.95,
+                clip_range=0.2,
+                ent_coef=0.15,  # Higher exploration
+                max_grad_norm=0.5,
+            )
+        else:
+            # Continue with existing model on new environment
+            print("\nContinuing training with existing model on new environment...")
+            model.set_env(train_env)
+
+        # Train
+        print(f"\nStarting training...")
+        model.learn(total_timesteps=stage['timesteps'], callback=eval_cb)
+        
+        print(f"\n Stage {stage_idx+1} complete!")
+        print(f"  Best success rate: {eval_cb.best_success_rate:.1%}")
+
+        # Save checkpoint after each stage
+        stage_save_path = os.path.join(save_path, f"stage_{stage_idx+1}")
+        model.save(stage_save_path)
+        print(f"  Model saved to: {stage_save_path}")
+
+        # If final stage and success rate too low (only for checkpoint mode), train more
+        if use_checkpoints and stage_idx == len(curriculum) - 1 and eval_cb.best_success_rate < 0.6:
+            print("\n Final stage success rate below 60%. Training additional 1M timesteps...")
+            model.learn(total_timesteps=1_000_000, callback=eval_cb)
+            print(f"  New success rate: {eval_cb.best_success_rate:.1%}")
+
+        train_env.close()
+        eval_cb.eval_env.close()
+
+    print("\n" + "=" * 60)
+    print(" Training Complete!")
+    print("=" * 60)
+
+    # Save final model
+    final_save_path = os.path.join(save_path, "ppo_final")
+    model.save(final_save_path)
+    print(f"\n Final model saved to: {final_save_path}")
+    print(f" Best model saved to: {os.path.join(save_path, 'best_model')}")
+
+if __name__ == "__main__":
+    main()
