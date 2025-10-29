@@ -32,6 +32,7 @@ class GridEnv(gym.Env):
         self.num_checkpoints = num_checkpoints
         self.action_space = gym.spaces.Discrete(4)  # Up, Down, Left, Right
 
+        # Observation space depends on whether checkpoints are used
         if num_checkpoints == 0: 
             third_dim = 4
         else: 
@@ -59,7 +60,7 @@ class GridEnv(gym.Env):
     def reset(self, *, seed = None, options = None):
         super().reset(seed=seed)
         self.steps_taken = 0
-        self.max_steps = 100 # Previously 50 - need more steps for checkpoints
+        self.max_steps = 100 if self.num_checkpoints > 0 else 50
         self.checkpoints_visited = []
         self.current_checkpoint_index = 0
 
@@ -103,41 +104,56 @@ class GridEnv(gym.Env):
         # Initialize reward
         reward = -0.1  # Step penalty
 
+        # Check boundaries
         if 0 <= new_row < self.num_rows and 0 <= new_col < self.num_cols:
             new_position = (new_row, new_col)
             
+            # Check for obstacle collision
             if new_position in self.obstacle_positions:
                 reward = -10.0  # Penalty for hitting obstacle
                 self.terminated = True
             else:
                 self.robot_position = new_position
                 
-                if (self.current_checkpoint_index < len(self.checkpoint_positions) and
-                    self.robot_position == self.checkpoint_positions[self.current_checkpoint_index]):
+                # Separate logic for checkpoint vs non-checkpoint environments
+                if self.num_checkpoints > 0:
+                    # Checkpoint environment logic
+                    if (self.current_checkpoint_index < len(self.checkpoint_positions) and
+                        self.robot_position == self.checkpoint_positions[self.current_checkpoint_index]):
+                        
+                        reward = 50.0  # Reward for reaching checkpoint
+                        self.checkpoints_visited.append(self.robot_position)
+                        self.current_checkpoint_index += 1  # Advance to next
+                        self.terminated = False 
                     
-                    reward = 50.0  # Reward for reaching checkpoint
-                    self.checkpoints_visited.append(self.robot_position)
-                    self.current_checkpoint_index += 1  # Advance to next
-                    self.terminated = False 
-                
-                elif self.robot_position == self.target_position:
-                    self.terminated = True
+                    elif self.robot_position == self.target_position:
+                        self.terminated = True
+                        
+                        # Give reward based on whether all checkpoints visited
+                        if self.current_checkpoint_index == len(self.checkpoint_positions):
+                            reward = 100.0  # Success
+                        else:
+                            reward = -10.0  # Failure (skipped checkpoints)
                     
-                    # Give reward based on whether all checkpoints visited
-                    if self.current_checkpoint_index == len(self.checkpoint_positions):
-                        reward = 100.0  # Success
+                    # Normal move
                     else:
-                        reward = -10.0  # Failure (skipped checkpoints)
-                
-                # Normal move
+                        reward = -0.1
+                        self.terminated = False
+                        
                 else:
-                    reward = -0.1
-                    self.terminated = False
+                    # Base environment logic (no checkpoints)
+                    if self.robot_position == self.target_position:
+                        reward = 100.0  # Reward for reaching the target
+                        self.terminated = True
+                    else:
+                        reward = -0.1  # Step penalty
+                        self.terminated = False
         else:
+            # Out of bounds
             reward = -10.0  # Penalty for stepping out of bounds
             self.terminated = True
 
-        # --- Truncation condition ---
+        # Truncation condition
         self.truncated = self.steps_taken >= self.max_steps
 
         observation = self._get_observation()
@@ -200,32 +216,33 @@ class GridEnv(gym.Env):
                 ),
             )
 
-        # Now we draw the checkpoints
-        # Starting with the next checkpoint
-        if self.current_checkpoint_index < len(self.checkpoint_positions):
-            next_cp = self.checkpoint_positions[self.current_checkpoint_index]
-            pygame.draw.circle(
-                canvas,
-                (255, 215, 0),  # Gold color
-                (
-                    (next_cp[1] + 0.5) * pix_square_size,
-                    (next_cp[0] + 0.5) * pix_square_size,
-                ),
-                pix_square_size / 4,
-            )
-    
-        # And drawing remaining checkpoints
-        for i in range(self.current_checkpoint_index + 1, len(self.checkpoint_positions)):
-            cp = self.checkpoint_positions[i]
-            pygame.draw.circle(
-                canvas,
-                (255, 165, 0),  # Orange color
-                (
-                    (cp[1] + 0.5) * pix_square_size,
-                    (cp[0] + 0.5) * pix_square_size,
-                ),
-                pix_square_size / 4,
-            )
+        # Draw checkpoints only if they exist
+        if self.num_checkpoints > 0:
+            # Starting with the next checkpoint
+            if self.current_checkpoint_index < len(self.checkpoint_positions):
+                next_cp = self.checkpoint_positions[self.current_checkpoint_index]
+                pygame.draw.circle(
+                    canvas,
+                    (255, 215, 0),  # Gold color
+                    (
+                        (next_cp[1] + 0.5) * pix_square_size,
+                        (next_cp[0] + 0.5) * pix_square_size,
+                    ),
+                    pix_square_size / 4,
+                )
+        
+            # And drawing remaining checkpoints
+            for i in range(self.current_checkpoint_index + 1, len(self.checkpoint_positions)):
+                cp = self.checkpoint_positions[i]
+                pygame.draw.circle(
+                    canvas,
+                    (255, 165, 0),  # Orange color
+                    (
+                        (cp[1] + 0.5) * pix_square_size,
+                        (cp[0] + 0.5) * pix_square_size,
+                    ),
+                    pix_square_size / 4,
+                )
 
         # Finally, add some gridlines
         for x in range(self.num_rows + 1):
@@ -268,17 +285,22 @@ class GridEnv(gym.Env):
     #===================================================================
 
     def _get_info(self):
-        return {
+        info = {
             "robot_position": self.robot_position,
             "target_position": self.target_position,
             "obstacle_positions": self.obstacle_positions,
-            "checkpoint_positions": self.checkpoint_positions,
-            "checkpoints_visited": self.checkpoints_visited,
-            "current_checkpoint_index": self.current_checkpoint_index,
         }
+        
+        # Only include checkpoint info if checkpoints are used
+        if self.num_checkpoints > 0:
+            info["checkpoint_positions"] = self.checkpoint_positions
+            info["checkpoints_visited"] = self.checkpoints_visited
+            info["current_checkpoint_index"] = self.current_checkpoint_index
+        
+        return info
 
     def _get_observation(self):
-
+        # Determine observation dimension
         if self.num_checkpoints == 0:
             third_dim = 4
         else:
@@ -302,21 +324,23 @@ class GridEnv(gym.Env):
         obs[self.robot_position[0], self.robot_position[1], 3] = 0.0
         for obs_pos in self.obstacle_positions:
             obs[obs_pos[0], obs_pos[1], 3] = 0.0
-        for obs_pos in self.checkpoint_positions:
-            obs[obs_pos[0], obs_pos[1], 3] = 0.0
         obs[self.target_position[0], self.target_position[1], 3] = 0.0
 
-        # Channel 4: Next checkpoint (the one to visit now)
-        if self.current_checkpoint_index < len(self.checkpoint_positions):
-            next_cp = self.checkpoint_positions[self.current_checkpoint_index]
-            obs[next_cp[0], next_cp[1], 4] = 1.0
-            obs[next_cp[0], next_cp[1], 3] = 0.0  # Mark as not free
-        
-        # Channel 5: Remaining checkpoints (future ones)
-        for i in range(self.current_checkpoint_index + 1, len(self.checkpoint_positions)):
-            cp = self.checkpoint_positions[i]
-            obs[cp[0], cp[1], 5] = 1.0
-            obs[cp[0], cp[1], 3] = 0.0  # Mark as not free
+        # Only add checkpoint channels if checkpoints are used
+        if self.num_checkpoints > 0:
+            # Mark checkpoints as not free
+            for obs_pos in self.checkpoint_positions:
+                obs[obs_pos[0], obs_pos[1], 3] = 0.0
+            
+            # Channel 4: Next checkpoint (the one to visit now)
+            if self.current_checkpoint_index < len(self.checkpoint_positions):
+                next_cp = self.checkpoint_positions[self.current_checkpoint_index]
+                obs[next_cp[0], next_cp[1], 4] = 1.0
+            
+            # Channel 5: Remaining checkpoints (future ones)
+            for i in range(self.current_checkpoint_index + 1, len(self.checkpoint_positions)):
+                cp = self.checkpoint_positions[i]
+                obs[cp[0], cp[1], 5] = 1.0
                 
         return obs
     
@@ -324,18 +348,32 @@ class GridEnv(gym.Env):
         # Initialize positions for all entities
         # caution : we should not have overlapping positions
         all_positions = list(product(range(self.num_rows), range(self.num_cols)))
+        
         # Sample positions until a valid layout is found
         while True:
             robot_position = rd.choice(all_positions)
             available_positions = [pos for pos in all_positions if pos != robot_position]
-            sampled_positions = rd.sample(available_positions, self.num_obstacles + self.num_checkpoints+ 1)
-            # Assign positions for obstacles and target
+            sampled_positions = rd.sample(available_positions, self.num_obstacles + self.num_checkpoints + 1)
+            
+            # Assign positions for obstacles
             obstacle_positions = sampled_positions[:self.num_obstacles]
-            # Assign positions for checkpoints
+            
+            # Assign positions for checkpoints (if any)
             checkpoint_positions = sampled_positions[self.num_obstacles:self.num_obstacles + self.num_checkpoints]
+            
+            # Target position
             target_position = sampled_positions[-1]
-            if self._target_is_reachable(robot_position, target_position, obstacle_positions)and self._checkpoints_reachable(robot_position, checkpoint_positions, obstacle_positions):
-                break
+            
+            # Check reachability
+            if self.num_checkpoints > 0:
+                # For checkpoint environment, verify full path is reachable
+                if (self._target_is_reachable(robot_position, target_position, obstacle_positions) and 
+                    self._checkpoints_reachable(robot_position, checkpoint_positions, target_position, obstacle_positions)):
+                    break
+            else:
+                # For base environment, just check if target is reachable
+                if self._target_is_reachable(robot_position, target_position, obstacle_positions):
+                    break
 
         return robot_position, obstacle_positions, checkpoint_positions, target_position
     
@@ -364,11 +402,15 @@ class GridEnv(gym.Env):
 
         return False
     
-    def _checkpoints_reachable(self, robot_position, checkpoint_positions, obstacle_positions):
-        # Check if all checkpoints are reachable in sequence
+    def _checkpoints_reachable(self, robot_position, checkpoint_positions, target_position, obstacle_positions):
+        # Check if all checkpoints are reachable in sequence, then target
         current_position = robot_position
+        
+        # Check each checkpoint in order
         for cp in checkpoint_positions:
             if not self._target_is_reachable(current_position, cp, obstacle_positions):
                 return False
             current_position = cp
-        return True
+        
+        # Finally check if target is reachable from last checkpoint
+        return self._target_is_reachable(current_position, target_position, obstacle_positions)

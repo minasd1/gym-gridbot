@@ -4,7 +4,7 @@
 import argparse
 import gymnasium as gym
 import numpy as np
-from stable_baselines3 import PPO
+from stable_baselines3 import PPO, DQN
 from gridbot_env.grid_env import GridEnv
 
 #===================================================================
@@ -25,8 +25,13 @@ def evaluate_base_environment(model_path, num_episodes=100):
     
     # Load model
     print(f"\nLoading model...")
-    model = PPO.load(model_path, env=env)
-    print("Model loaded successfully!")
+
+    if "dqn" in model_path.lower():
+        model = DQN.load(model_path, env=env)
+        print("DQN model loaded successfully!")
+    else:
+        model = PPO.load(model_path, env=env)
+        print("PPO model loaded successfully!")
     
     # Evaluation metrics
     total_rewards = []

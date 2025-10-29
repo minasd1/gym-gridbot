@@ -205,12 +205,13 @@ def test_checkpoints_reachable():
     env.robot_position = (0, 0)
     env.checkpoint_positions = [(0, 4), (2, 2)]
     env.obstacle_positions = [(1, 0), (1, 1), (2, 1), (3, 3), (4, 3)]
+    env.target_position = (2, 4)
 
-    assert env._checkpoints_reachable(env.robot_position, env.checkpoint_positions, env.obstacle_positions) is True
+    assert env._checkpoints_reachable(env.robot_position, env.checkpoint_positions, env.target_position, env.obstacle_positions) is True
 
     # Now create a layout where the second checkpoint is not reachable
     env.obstacle_positions = [(1, 0), (1, 1), (0, 3), (0, 5), (1, 4)]
-    assert env._checkpoints_reachable(env.robot_position, env.checkpoint_positions, env.obstacle_positions) is False
+    assert env._checkpoints_reachable(env.robot_position, env.checkpoint_positions, env.target_position, env.obstacle_positions) is False
 
 if __name__ == "__main__":
     test_reset_returns_correct_info()
