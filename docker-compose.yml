@@ -1,0 +1,23 @@
+# Define services
+services:
+  # Name of the service
+  gridbot:
+    # Build from Dockerfile in the current directory
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    
+    # Container name
+    container_name: gridbot_container
+
+    # Mount the local code in the container
+    # This allows for live code updates without rebuilding the image
+    volumes:
+      - ./:/gym-gridbot
+
+    # Keep the container running in the background
+    stdin_open: true
+    tty: true
+
+    # Override default CMD to run bash instead
+    command: /bin/bash

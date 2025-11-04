@@ -1,0 +1,24 @@
+# Don't copy the following files and directories to the Docker image
+
+# Virtual environment directories
+venv/
+
+# Training artifacts
+models/
+logs/
+
+# Git files
+.git/
+.gitignore
+
+# Python cache files
+__pycache__/
+*.pyc   
+
+# Package metadata - will be created during build
+*.egg-info/
+
+# Dockerfiles themselves
+Dockerfile
+.dockerignore
+docker-compose.yml
