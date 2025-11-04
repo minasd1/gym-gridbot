@@ -12,6 +12,48 @@ This project implements:
 
 The environment simulates a robot navigating a 6x6 grid with obstacles, learning to reach a target position through reinforcement learning.
 
+## Docker Setup
+
+### Prerequisites
+- Docker and Docker Compose installed on your system
+
+### Building and Running
+
+Build the Docker image:
+```bash
+docker compose build
+```
+
+Start the container in detached mode:
+```bash
+docker compose up -d
+```
+
+Access the running container:
+```bash
+docker exec -it gridbot_container /bin/bash
+```
+
+Once inside the container, use `python3` for all Python commands.
+
+### Development Workflow
+
+The project directory is mounted at `/gym-gridbot` inside the container. Code changes on your host machine are immediately reflected in the container without rebuilding.
+
+### Stopping the Container
+```bash
+docker compose down
+```
+
+### Rebuilding After Dependency Changes
+
+If you modify `requirements.txt`:
+```bash
+docker compose down
+docker compose build
+docker compose up -d
+```
+
 ## Setup Instructions
 ```bash
 # Make the install script executable
